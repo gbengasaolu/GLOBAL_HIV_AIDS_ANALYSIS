@@ -1,0 +1,443 @@
+---
+title: "Global HIV/AIDS Analysis, 2000-2011"
+author: "Olugbenga Asaolu"
+format:
+  html:
+    theme: united
+execute: 
+  enabled: true
+  echo: false
+---
+
+::: {.hidden}
+
+# Introduction
+
+In this workshop, you'll learn how to clean and analyze HIV and AIDS data across different countries and years. We will start with raw datasets containing estimates of new and total HIV cases per country-year. The goal is to clean and merge these datasets with population data.
+
+# Load Libraries
+
+```{python}
+# Load libraries
+import pandas as pd
+import country_converter as coco
+import plotly.express as px
+import itables as show
+from itables import show
+```
+
+# Data Import
+
+First, we import two raw datasets, each containing estimates per country-year. These data were accessed from the Gapminder foundation, at [www.gapminder.org/data](https://www.gapminder.org/data).
+
+1. **People living with HIV:** This dataset contains the total number of people currently infected with HIV (*data/hiv_prevalence.csv*).
+
+2. **New HIV infections:** This dataset provides the total number of people newly infected with HIV during a given year (*data/hiv_incidence.csv*).
+
+Load the datasets into Python using `pd.read_csv()` then explore them to understand their structure.
+
+```{python}
+# Load raw data from specified paths
+total_hiv_raw = pd.read_csv("data/hiv_prevalence.csv")
+new_hiv_raw = pd.read_csv("data/hiv_incidence.csv")
+
+total_hiv_raw.head()
+new_hiv_raw.head()
+```
+
+Now, we import data on population estimates per country per year from the World Bank:
+
+```{python}
+# Load population data
+population = pd.read_csv("data/population_estimates_world_bank.csv")
+population.head()
+```
+
+# Data Pivoting
+
+Now that we have imported the data it's time to pivot it.
+
+The datasets are currently in wide format, with each year as a separate column, something like this:
+
+| country     | 1990  | 1991  | 1992  | 1993  | 1994  |
+|-------------|-------|-------|-------|-------|-------|
+| Afghanistan | 600   | 600   | 1000  | 1100  | 1200  |
+| Angola      | 33000 | 39000 | 46000 | 54000 | 62000 |
+| Argentina   | 27000 | 31000 | 35000 | 39000 | 43000 |
+| Armenia     | 350   | 600   | 600   | 600   | 1000  |
+| Australia   | 12000 | 12000 | 12000 | 11000 | 11000 |
+| Austria     | 600   | 600   | 1000  | 1300  | 1500  |
+
+We need to convert this to long format, where each row represents a single year-country combination.
+
+For example:
+
+| country     | year | cases |
+|-------------|------|-------|
+| Afghanistan | 1990 | 600   |
+| Afghanistan | 1991 | 600   |
+| Afghanistan | 1992 | 1000  |
+| Afghanistan | 1993 | 1100  |
+| Afghanistan | 1994 | 1200  |
+
+## Instructions for Pivoting `new_hiv_raw` Data
+
+Reshape the `new_hiv_raw` dataset by converting the columns that represent different years into a new column called `year`, and place the corresponding values into a new column called `new_cases`.
+
+Hints:
+
+1. Use `melt()` on `new_hiv_raw`.
+
+2. Exclude the `country` and `country_code` columns from being melted by specifying `id_vars=['country', 'country_code']`.
+
+3. Set the names of the new columns inside `melt()` using:
+    - `var_name='year'` to label the column that will store the years.
+    - `value_name='new_cases'` to store the values representing new HIV cases under the `new_cases` column.
+
+```{python}
+# Reshape new_hiv_raw to long format
+new_hiv_long = new_hiv_raw.melt(
+    id_vars=['country', 'country_code'],
+    var_name='year',
+    value_name='new_cases'
+).sort_values(by=['country', 'country_code'])
+new_hiv_long.head()
+```
+
+---
+
+## Instructions for Pivoting `total_hiv_raw` Data
+
+In a similar manner, pivot the `total_hiv_raw` dataset to a long format. Convert the year columns into a new column called `year` and the counts into `total_cases`.
+
+```{python}
+# Reshape total_hiv_raw to long format
+total_hiv_long = total_hiv_raw.melt(
+    id_vars=['country', 'country_code'],
+    var_name='year',
+    value_name='total_cases'
+).sort_values(by=['country', 'country_code'])
+total_hiv_long.head()
+```
+
+**CHECKPOINT:**
+
+After performing these steps, make sure that you have two reshaped datasets:
+
+- `new_hiv_long` with **4 columns**: `country`, `country_code`, `year`, and `new_cases`.
+
+- `total_hiv_long` with **4 columns**: `country`, `country_code`, `year`, and `total_cases`.
+
+# Joining the HIV Datasets
+
+Now that both datasets are in long format, we can join them.
+
+Note that you need to use the `country`, `country_code`, and `year` columns as the keys (`on=['country', 'country_code', 'year']`).
+
+Use `pd.merge()` with `how='outer'` so that we can keep as much information as possible.
+
+```{python}
+# Join the two datasets
+hiv_data_combined = pd.merge(new_hiv_long, total_hiv_long, on= ['country', 'country_code', 'year'], how='outer')
+hiv_data_combined.head()
+```
+
+**CHECKPOINT:** The combined dataset should have columns for `country`, `country_code`, `year`, `total_cases`, and `new_cases`. There may some missing values; that is okay.
+
+# Add Population Data
+
+The `population` dataset contains information on population per year from 2000 to 2017.
+
+```{python}
+population.head()
+```
+
+Note that we are interested in the total population of each country, which is labelled `SP.POP.TOTL` in the dataset.
+
+Additionally, note that the `country` column doesn't have full country names, but the 3-letter country codes.
+
+This will make it easier to join with our HIV dataset, since country codes are consistent across datasets (unlike full country names).
+
+## Filter and Prepare Population Data
+
+Next, complete the following transformations on the `population` dataset:
+
+-   Query the data to just the `SP.POP.TOTL` indicator
+
+-   Melt the data to a long format.
+
+-   Rename the "country" column to "country_code" so that we can join it properly later on.
+
+- Drop the `indicator` column.
+
+Store your final result as `population_long`.
+
+```{python}
+population2=population.query('indicator == "SP.POP.TOTL"')
+population2.head()
+
+population_long = population2.melt(
+    id_vars=['country', 'indicator'],
+    var_name='year',
+    value_name='population'
+).sort_values(by=['country', 'indicator'])
+population_long.head()
+
+# drop indicator column
+population_long.drop(columns=["indicator"])
+population_long.head()
+
+# rename country column to country_code
+population_long.rename(columns={"country": "country_code"})
+population_long=population_long.drop(columns=["indicator"])
+population_long=population_long.rename(columns={"country": "country_code"})
+```
+
+**CHECKPOINT:**
+
+After performing these steps, make sure that you have a dataset named `population_long` with **3 columns**: `country_code`, `year`, and `population`.
+
+## Join Population Data with HIV Data
+
+Use `pd.merge()` to add the population information to your HIV data combined dataset (the HIV data should be the left or primary dataset). You should use both "country_code" and "year" as keys.
+
+```{python}
+# Merge population data with HIV data
+hiv_data_combined_pop = pd.merge(hiv_data_combined, population_long, on= ['country_code', 'year'], how='left')
+
+hiv_data_combined_pop.head()
+```
+
+**CHECKPOINT:** Verify that `hiv_data_combined_pop` now contains a `population` column.
+
+## Calculate Incidence Rate and Prevalence Rate
+
+Lastly, calculate the incidence rate and prevalence rate per 100,000 people:
+
+- **Incidence Rate** = New Cases / Population * 100000
+- **Prevalence Rate** = Total Cases / Population * 100000
+
+```{python}
+# Calculate incidence and prevalence rates
+hiv_data_combined_pop ["incidence_rate"]= (hiv_data_combined_pop ["new_cases"]/hiv_data_combined_pop ["population"]) * 100000
+hiv_data_combined_pop.head()
+
+# Prevalence rate
+hiv_data_combined_pop ["prevalence_rate"]= (hiv_data_combined_pop ["total_cases"]/hiv_data_combined_pop ["population"]) * 100000
+hiv_data_combined_pop.head()
+```
+
+# Plot Incidence Rates
+
+Now, you'll select 3 countries of your choice and plot their incidence rate over time.
+
+- Query the data to narrow down the countries. 
+- Convert the `year` column to a `numeric` type with `astype(int)`.
+
+Store the result as `hiv_data_mini`.
+
+Note that some countries have many years with missing data, especially for `new_cases`.
+
+```{python}
+# Convert the `year` column to a `numeric` type with `astype(int)`
+hiv_data_combined_pop['year'] = hiv_data_combined_pop['year'].astype(int)
+hiv_data_combined_pop.head ()
+
+# List of countries to filter
+selected_countries = ["Angola","Zambia", "Zimbabwe"]
+
+# Filter dataset for only these countries
+hiv_data_mini = hiv_data_combined_pop[hiv_data_combined_pop['country'].isin(selected_countries)]
+
+# Display filtered data
+print(hiv_data_mini)
+```
+
+Now plot incidence rates over time using Plotly Express.
+
+```{python}
+# Create the line plot
+fig = px.line(
+    hiv_data_mini,
+    x="year",
+    y="incidence_rate",
+    color="country",
+    title="HIV Incidence Rate Trends in Selected Countries",
+    labels={"incidence_rate": "Incidence Rate (per 100,000)", "year": "Year"},
+    markers=True
+)
+
+# Show the plot
+fig.show()
+
+```
+
+# Plot Prevalence Rates
+
+Plot their prevalence rates over time, using a line graph.
+
+```{python}
+## Create the line plot
+fig2 = px.line(
+    hiv_data_mini,
+    x="year",
+    y="prevalence_rate",
+    color="country",
+    title="HIV Prevalence Rate Trends in Selected Countries",
+    labels={"prevalence_rate": "Prevalence Rate (per 100,000)", "year": "Year"},
+    markers=True
+)
+
+# Show the plot
+fig2.show()
+```
+
+# Optional Ungraded Challenge
+
+In this challenge, you will:
+
+1. **Add Regional Information:** Use the `country_converter` package to get regional (continent) information for each country.
+
+```{python}
+import country_converter as coco
+
+# Convert country names to continents
+hiv_data_combined_pop["continent"] = coco.convert(
+    names=hiv_data_combined_pop["country"], to="continent"
+)
+# Display the updated DataFrame
+hiv_data_combined_pop
+
+
+```
+
+2. **Identify Highest Prevalence Rates per Continent:** Find the countries with the highest prevalence rate in 2011 for each continent
+
+```{python}
+# Filter for the year 2011
+hiv_data_2011 = hiv_data_combined_pop[hiv_data_combined_pop["year"] == 2011]
+
+# Find the country with the highest prevalence rate for each continent
+highest_prevalence_2011 = hiv_data_2011.loc[
+    hiv_data_2011.groupby("continent")["prevalence_rate"].idxmax(),
+    ["continent", "country", "prevalence_rate"]
+]
+
+# Display the result
+highest_prevalence_2011
+print(highest_prevalence_2011)
+
+```
+
+
+3. **Create a Bar Chart:** Make a bar chart comparing the 2011 prevalence rates of these countries.
+
+```{python}
+            
+# Create a bar chart using Plotly
+fig3 = px.bar(
+    highest_prevalence_2011, 
+    x="country", 
+    y="prevalence_rate", 
+    color="continent",
+    title="Highest Prevalence Rate by Continent (2011)",
+    labels={"prevalence_rate": "Prevalence Rate (%)", "country": "Country"},
+    text_auto=True,
+    color_discrete_sequence= ["#003f5c", "#58508d", "#bc5090", "#ff6361", "#ffa600"]
+)
+
+# Show the interactive plot
+fig3.show()
+
+```
+
+```{python}
+# Create box plot for new cases using plotly express
+fig_ncases = px.box(
+hiv_data_combined_pop,
+x="continent",
+y="new_cases",
+title="New HIV cases by continent",
+)
+fig_ncases.show()
+```
+
+
+```{python}
+# Create box plot for total cases using plotly express
+fig_tcases = px.box(
+    hiv_data_combined_pop,
+    x="continent",
+    y="total_cases",
+    title="Total HIV cases by continent",
+)
+fig_tcases.show()
+```
+
+:::
+
+# Analysis of HIV and AIDS data across different countries and years.
+
+These data were accessed from the Gapminder foundation, at [www.gapminder.org/data](https://www.gapminder.org/data).
+
+1. **People living with HIV:** This dataset contains the total number of people currently infected with HIV (*data/hiv_prevalence.csv*).
+
+2. **New HIV infections:** This dataset provides the total number of people newly infected with HIV during a given year (*data/hiv_incidence.csv*).
+
+## Two HIV data have been merged with population data
+
+The incidence Rate and prevalence Rate is calculated and added as columns
+
+```{python}
+show(hiv_data_combined_pop)
+```
+
+## HIV Incidence Rate Trends in Selected Countries
+Using the plotly express package, we plotted the HIV incidence rate trends over time in three selected African countries, Angola, Zambia and Zimbabwe.
+
+
+```{python}
+fig.show()
+```
+
+The plot illustrates the temporal trends in HIV incidence rates (per 100,000 population) from the year 2000 to approximately 2011 across three Sub-Saharan African countries: Angola, Zambia, and Zimbabwe.
+
+Zimbabwe begins the observed period with the highest HIV incidence rate, exceeding 1300 per 100,000 in 2000. However, a notable downward trend is observed throughout the decade, with incidence rates decreasing to under 600 by 2011. This substantial reduction suggests the effectiveness of nationwide prevention strategies, treatment scale-up, and public health interventions during this period.
+
+Zambia also exhibits a declining trend, although it starts at a lower incidence than Zimbabwe. The decrease is more gradual, indicating consistent though less dramatic progress in reducing new HIV infections.
+
+Angola, on the other hand, maintains a relatively low and stable incidence rate, hovering around 100–150 per 100,000. This stability could reflect either consistently lower transmission dynamics or, alternatively, underreporting or under-detection of cases due to limited surveillance capacity or healthcare infrastructure.
+
+
+## HIV prevalence rates over time in the same selected countries
+This plot presents the HIV prevalence rates (per 100,000 population) from 2000 to 2011 in three Sub-Saharan African countries: Angola, Zambia, and Zimbabwe. Prevalence reflects the total number of people living with HIV at a given time, incorporating both new infections and existing cases.
+
+```{python}
+fig2.show()
+```
+
+Zimbabwe again begins the period with the highest prevalence rate, peaking above 16,000 per 100,000 (~16%) in 2000. A marked decline in prevalence is observed over the subsequent decade, dropping to about 10,000 per 100,000 by 2011. This trend, while positive, also suggests that while new infections decreased (as seen in the incidence plot), many individuals remained infected and survived longer, likely due to the expanded access to antiretroviral therapy (ART).
+
+Zambia shows a similar downward trajectory, though starting from a slightly lower base. The reduction from approximately 12,000 per 100,000 to under 9,000 over a decade indicates parallel gains in HIV management and reduced transmission, though the sustained high prevalence still underscores a heavy disease burden.
+
+Angola exhibits a consistently low prevalence rate throughout the time period, ranging between 1,000 and 1,500 per 100,000. This may reflect a genuinely lower rate of HIV transmission in the country, but it also raises questions about surveillance coverage, diagnostic capacity, and reporting accuracy, especially in the early 2000s.
+
+
+## The country with the highest prevalence rate for each continent in the year 2011
+
+
+```{python}
+highest_prevalence_2011
+```
+
+## "Visualization of countries with the highest Prevalence Rate by Continent (2011)"
+
+```{python}
+fig3.show()
+```
+
+## Public Health Analysis
+
+The declining prevalence in Zambia and Zimbabwe, alongside falling incidence rates (from the previous plot), suggests mature epidemics transitioning into better-controlled public health challenges. However, high prevalence despite declining incidence implies that more individuals are living longer with HIV, a hallmark of successful ART scale-up, but also an indication of the ongoing need for long-term care, support, and monitoring.
+
+Angola's flat trend in both incidence and prevalence calls for deeper investigation. A true low-prevalence setting is promising, but only if surveillance and data systems are robust. Without that assurance, these numbers may underestimate the real burden of the disease.
